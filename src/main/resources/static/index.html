@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Expense Tracker</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #fff; --text: #1f2430; --muted: #6b7280;
+    --accent: #2f6fed; --danger: #d64545; --border: #e3e6ec;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #14161b; --card: #1d2027; --text: #e8eaf0; --muted: #9aa1b0; --border: #2c303a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: var(--bg); color: var(--text); }
+  header { padding: 20px 16px 4px; max-width: 960px; margin: 0 auto; }
+  h1 { margin: 0; font-size: 1.5rem; }
+  main { max-width: 960px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  .card h2 { margin: 0 0 12px; font-size: 1rem; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+  .stat { padding: 12px; border: 1px solid var(--border); border-radius: 10px; }
+  .stat .label { color: var(--muted); font-size: .8rem; }
+  .stat .value { font-size: 1.4rem; font-weight: 600; margin-top: 4px; }
+  form { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; align-items: end; }
+  label { display: grid; gap: 4px; font-size: .8rem; color: var(--muted); }
+  input, select, button { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); color: var(--text); }
+  button { cursor: pointer; background: var(--accent); color: #fff; border-color: var(--accent); }
+  button.secondary { background: transparent; color: var(--text); border-color: var(--border); }
+  button.danger { background: transparent; color: var(--danger); border-color: var(--danger); padding: 4px 8px; }
+  .filters { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; align-items: end; }
+  table { width: 100%; border-collapse: collapse; font-size: .92rem; }
+  th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; font-size: .8rem; }
+  td.amount, th.amount { text-align: right; font-variant-numeric: tabular-nums; }
+  .bar-row { display: grid; grid-template-columns: 110px 1fr 90px; gap: 8px; align-items: center; margin: 6px 0; font-size: .85rem; }
+  .bar { height: 10px; background: var(--accent); border-radius: 5px; }
+  .empty { color: var(--muted); padding: 12px 0; }
+  .error { color: var(--danger); font-size: .85rem; min-height: 1.2em; margin-top: 8px; }
+</style>
+</head>
+<body>
+<header><h1>Expense Tracker</h1></header>
+<main>
+  <section class="card">
+    <div class="stats">
+      <div class="stat"><div class="label">Total spent</div><div class="value" id="total">0.00</div></div>
+      <div class="stat"><div class="label">Expenses</div><div class="value" id="count">0</div></div>
+      <div class="stat"><div class="label">Top category</div><div class="value" id="top">-</div></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2 id="form-title">Add expense</h2>
+    <form id="expense-form">
+      <input type="hidden" id="expense-id">
+      <label>Title<input id="title" required maxlength="255"></label>
+      <label>Amount<input id="amount" type="number" step="0.01" min="0.01" required></label>
+      <label>Category<select id="category"></select></label>
+      <label>Date<input id="date" type="date" required></label>
+      <label>Notes<input id="notes" maxlength="500"></label>
+      <div style="display:flex; gap:8px;">
+        <button type="submit" id="submit-btn">Add</button>
+        <button type="button" class="secondary" id="cancel-btn" hidden>Cancel</button>
+      </div>
+    </form>
+    <div class="error" id="error"></div>
+  </section>
+
+  <section class="card">
+    <h2>By category</h2>
+    <div id="by-category"></div>
+  </section>
+
+  <section class="card">
+    <h2>Expenses</h2>
+    <div class="filters">
+      <label>Category<select id="f-category"><option value="">All</option></select></label>
+      <label>From<input type="date" id="f-from"></label>
+      <label>To<input type="date" id="f-to"></label>
+      <button class="secondary" id="clear-filters" type="button">Clear</button>
+    </div>
+    <table>
+      <thead><tr><th>Date</th><th>Title</th><th>Category</th><th class="amount">Amount</th><th></th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div class="empty" id="empty" hidden>No expenses found.</div>
+  </section>
+</main>
+
+<script>
+const CATEGORIES = ["FOOD","TRANSPORT","HOUSING","UTILITIES","ENTERTAINMENT","HEALTH","SHOPPING","EDUCATION","OTHER"];
+const $ = id => document.getElementById(id);
+const money = n => Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const label = c => c.charAt(0) + c.slice(1).toLowerCase();
+let expenses = [];
+
+function fillSelect(select, includeAll) {
+  CATEGORIES.forEach(c => {
+    const o = document.createElement("option");
+    o.value = c; o.textContent = label(c);
+    select.appendChild(o);
+  });
+}
+fillSelect($("category"));
+fillSelect($("f-category"));
+$("date").valueAsDate = new Date();
+
+function query() {
+  const p = new URLSearchParams();
+  if ($("f-category").value) p.set("category", $("f-category").value);
+  if ($("f-from").value) p.set("from", $("f-from").value);
+  if ($("f-to").value) p.set("to", $("f-to").value);
+  return p.toString() ? "?" + p : "";
+}
+
+async function load() {
+  const q = query();
+  const dateOnly = new URLSearchParams();
+  if ($("f-from").value) dateOnly.set("from", $("f-from").value);
+  if ($("f-to").value) dateOnly.set("to", $("f-to").value);
+  const [list, summary] = await Promise.all([
+    fetch("/api/expenses" + q).then(r => r.json()),
+    fetch("/api/expenses/summary" + (dateOnly.toString() ? "?" + dateOnly : "")).then(r => r.json())
+  ]);
+  expenses = list;
+  renderRows();
+  renderSummary(summary);
+}
+
+function renderRows() {
+  const body = $("rows");
+  body.innerHTML = "";
+  $("empty").hidden = expenses.length > 0;
+  expenses.forEach(e => {
+    const tr = document.createElement("tr");
+    const cells = [e.date, e.title, label(e.category)];
+    cells.forEach(t => { const td = document.createElement("td"); td.textContent = t; tr.appendChild(td); });
+    const amt = document.createElement("td"); amt.className = "amount"; amt.textContent = money(e.amount); tr.appendChild(amt);
+    const actions = document.createElement("td");
+    const edit = document.createElement("button"); edit.className = "secondary"; edit.textContent = "Edit"; edit.style.padding = "4px 8px";
+    edit.onclick = () => startEdit(e);
+    const del = document.createElement("button"); del.className = "danger"; del.textContent = "Delete";
+    del.onclick = () => remove(e.id);
+    actions.append(edit, " ", del);
+    tr.appendChild(actions);
+    body.appendChild(tr);
+  });
+}
+
+function renderSummary(s) {
+  $("total").textContent = money(s.total);
+  $("count").textContent = s.count;
+  const entries = Object.entries(s.byCategory).sort((a, b) => b[1] - a[1]);
+  $("top").textContent = entries.length ? label(entries[0][0]) : "-";
+  const box = $("by-category");
+  box.innerHTML = "";
+  if (!entries.length) { box.innerHTML = '<div class="empty">No data yet.</div>'; return; }
+  const max = entries[0][1];
+  entries.forEach(([cat, amt]) => {
+    const row = document.createElement("div"); row.className = "bar-row";
+    const name = document.createElement("span"); name.textContent = label(cat);
+    const track = document.createElement("div");
+    const bar = document.createElement("div"); bar.className = "bar"; bar.style.width = (amt / max * 100) + "%";
+    track.appendChild(bar);
+    const val = document.createElement("span"); val.style.textAlign = "right"; val.textContent = money(amt);
+    row.append(name, track, val);
+    box.appendChild(row);
+  });
+}
+
+function startEdit(e) {
+  $("expense-id").value = e.id;
+  $("title").value = e.title;
+  $("amount").value = e.amount;
+  $("category").value = e.category;
+  $("date").value = e.date;
+  $("notes").value = e.notes || "";
+  $("form-title").textContent = "Edit expense";
+  $("submit-btn").textContent = "Save";
+  $("cancel-btn").hidden = false;
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function resetForm() {
+  $("expense-form").reset();
+  $("expense-id").value = "";
+  $("date").valueAsDate = new Date();
+  $("form-title").textContent = "Add expense";
+  $("submit-btn").textContent = "Add";
+  $("cancel-btn").hidden = true;
+  $("error").textContent = "";
+}
+$("cancel-btn").onclick = resetForm;
+
+$("expense-form").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  const id = $("expense-id").value;
+  const body = {
+    title: $("title").value,
+    amount: $("amount").value,
+    category: $("category").value,
+    date: $("date").value,
+    notes: $("notes").value || null
+  };
+  const res = await fetch("/api/expenses" + (id ? "/" + id : ""), {
+    method: id ? "PUT" : "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    $("error").textContent = err.errors ? Object.values(err.errors).join(", ") : (err.detail || "Something went wrong");
+    return;
+  }
+  resetForm();
+  load();
+});
+
+async function remove(id) {
+  if (!confirm("Delete this expense?")) return;
+  await fetch("/api/expenses/" + id, { method: "DELETE" });
+  load();
+}
+
+["f-category", "f-from", "f-to"].forEach(id => $(id).addEventListener("change", load));
+$("clear-filters").onclick = () => { $("f-category").value = ""; $("f-from").value = ""; $("f-to").value = ""; load(); };
+
+load();
+</script>
+</body>
+</html>
